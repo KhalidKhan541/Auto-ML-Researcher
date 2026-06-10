@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ML Experiment Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0a0c10;
+    --surface:  #111318;
+    --border:   #1e2230;
+    --accent:   #7c6af7;
+    --accent2:  #38e2c4;
+    --warn:     #f5a623;
+    --danger:   #f55a4e;
+    --text:     #e2e6f0;
+    --muted:    #6b7390;
+    --mono:     'JetBrains Mono', monospace;
+    --sans:     'Space Grotesk', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── Layout ── */
+  .app { display: grid; grid-template-columns: 320px 1fr; height: 100vh; overflow: hidden; }
+  .sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .main { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── Sidebar header ── */
+  .sidebar-header { padding: 24px 20px 16px; border-bottom: 1px solid var(--border); }
+  .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .logo-text { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+  .logo-sub { font-size: 10px; color: var(--muted); font-family: var(--mono); text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ── Input ── */
+  .new-experiment { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .input-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-family: var(--mono); }
+  textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--sans); font-size: 13px;
+    padding: 10px 12px; border-radius: 8px; resize: none; height: 80px;
+    transition: border-color 0.2s;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  textarea::placeholder { color: var(--muted); }
+
+  .row { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  .iter-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  select {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--sans); font-size: 12px; padding: 6px 8px; border-radius: 6px;
+    cursor: pointer;
+  }
+  select:focus { outline: none; border-color: var(--accent); }
+
+  .btn-run {
+    flex: 1; background: linear-gradient(135deg, var(--accent), #5b4fd4);
+    color: #fff; border: none; padding: 9px 16px; border-radius: 8px;
+    font-family: var(--sans); font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.2s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn-run:hover { opacity: 0.9; }
+  .btn-run:active { transform: scale(0.98); }
+  .btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Experiment list ── */
+  .exp-list-header { padding: 16px 20px 8px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-family: var(--mono); }
+  .exp-list { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
+  .exp-item {
+    padding: 12px; border-radius: 8px; margin-bottom: 6px;
+    border: 1px solid transparent; cursor: pointer; transition: all 0.15s;
+    background: transparent;
+  }
+  .exp-item:hover { background: var(--bg); border-color: var(--border); }
+  .exp-item.active { background: var(--bg); border-color: var(--accent); }
+  .exp-item-goal { font-size: 12px; color: var(--text); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .exp-item-meta { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
+  .exp-status { font-size: 10px; font-family: var(--mono); padding: 2px 7px; border-radius: 20px; }
+  .status-queued   { background: #1e2230; color: var(--muted); }
+  .status-running  { background: rgba(124,106,247,0.15); color: var(--accent); }
+  .status-converged{ background: rgba(56,226,196,0.12); color: var(--accent2); }
+  .status-max_iter { background: rgba(245,166,35,0.12); color: var(--warn); }
+  .status-failed   { background: rgba(245,90,78,0.12); color: var(--danger); }
+  .exp-item-time { font-size: 10px; color: var(--muted); font-family: var(--mono); margin-left: auto; }
+
+  /* ── Main panel ── */
+  .main-empty {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    color: var(--muted);
+  }
+  .empty-icon { font-size: 48px; opacity: 0.3; }
+  .empty-text { font-size: 14px; }
+
+  .experiment-view { flex: 1; overflow-y: auto; padding: 28px 32px; }
+
+  /* ── Header bar ── */
+  .exp-header { margin-bottom: 28px; }
+  .exp-goal-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-family: var(--mono); margin-bottom: 6px; }
+  .exp-goal-text { font-size: 18px; font-weight: 600; line-height: 1.4; letter-spacing: -0.3px; }
+  .exp-badges { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+  .badge { font-size: 11px; font-family: var(--mono); padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); color: var(--muted); }
+
+  /* ── Pipeline visualization ── */
+  .pipeline { display: flex; align-items: center; gap: 0; margin-bottom: 32px; overflow-x: auto; padding-bottom: 8px; }
+  .pipe-node {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    min-width: 90px;
+  }
+  .pipe-circle {
+    width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--border);
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+    background: var(--surface); transition: all 0.3s; position: relative;
+  }
+  .pipe-circle.active {
+    border-color: var(--accent); background: rgba(124,106,247,0.12);
+    box-shadow: 0 0 0 4px rgba(124,106,247,0.1);
+    animation: pulse 1.5s infinite;
+  }
+  .pipe-circle.done { border-color: var(--accent2); background: rgba(56,226,196,0.1); }
+  @keyframes pulse { 0%,100%{ box-shadow: 0 0 0 4px rgba(124,106,247,0.1); } 50%{ box-shadow: 0 0 0 8px rgba(124,106,247,0.05); } }
+  .pipe-label { font-size: 10px; color: var(--muted); font-family: var(--mono); text-align: center; }
+  .pipe-connector { flex: 1; height: 2px; background: var(--border); min-width: 20px; }
+  .pipe-connector.done { background: var(--accent2); }
+
+  /* ── Sections ── */
+  .section { margin-bottom: 24px; }
+  .section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    font-family: var(--mono); color: var(--muted);
+    padding-bottom: 10px; border-bottom: 1px solid var(--border); margin-bottom: 14px;
+  }
+
+  /* ── Cards ── */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .card + .card { margin-top: 10px; }
+  .card-label { font-size: 10px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .card-value { font-size: 13px; color: var(--text); line-height: 1.5; }
+
+  /* ── Iteration cards ── */
+  .iter-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; margin-bottom: 12px;
+  }
+  .iter-card-header {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    background: rgba(255,255,255,0.02); cursor: pointer; user-select: none;
+  }
+  .iter-num {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; font-family: var(--mono); flex-shrink: 0;
+  }
+  .iter-summary { flex: 1; font-size: 12px; color: var(--text); }
+  .iter-verdict { font-size: 11px; color: var(--muted); }
+  .iter-chevron { color: var(--muted); font-size: 12px; transition: transform 0.2s; }
+  .iter-chevron.open { transform: rotate(180deg); }
+  .iter-body { padding: 0 16px; max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s; }
+  .iter-body.open { max-height: 600px; padding: 14px 16px; }
+
+  /* ── Metrics grid ── */
+  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+  .metric-box {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; text-align: center;
+  }
+  .metric-val { font-size: 22px; font-weight: 700; font-family: var(--mono); color: var(--accent2); letter-spacing: -1px; }
+  .metric-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; font-family: var(--mono); }
+
+  /* ── Code block ── */
+  pre {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px; font-family: var(--mono); font-size: 11px; color: #a8b4c8;
+    overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+    max-height: 300px; overflow-y: auto;
+  }
+
+  /* ── Loading spinner ── */
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.7s linear infinite; display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px;
+    font-size: 13px; color: var(--text); z-index: 999;
+    animation: slideup 0.25s ease; display: flex; align-items: center; gap: 8px;
+    max-width: 320px;
+  }
+  @keyframes slideup { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+
+  /* ── Responsive ── */
+  @media(max-width: 768px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .sidebar { height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    .exp-list { max-height: 180px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── SIDEBAR ─────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <div class="logo-icon">🧬</div>
+        <div>
+          <div class="logo-text">ML Agent</div>
+          <div class="logo-sub">Autonomous Researcher</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="new-experiment">
+      <div class="input-label">New Experiment</div>
+      <textarea id="goalInput" placeholder="e.g. Build a classifier to predict customer churn with >90% accuracy on tabular data"></textarea>
+      <div class="row">
+        <span class="iter-label">Iterations:</span>
+        <select id="maxIter">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="5">5</option>
+        </select>
+        <button class="btn-run" id="runBtn" onclick="startExperiment()">▶ Run</button>
+      </div>
+    </div>
+
+    <div class="exp-list-header">Experiments</div>
+    <div class="exp-list" id="expList">
+      <div style="padding:16px;color:var(--muted);font-size:12px;text-align:center">
+        No experiments yet
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ───────────────────────────────────────────────── -->
+  <main class="main">
+    <div class="main-empty" id="emptyState">
+      <div class="empty-icon">⚗️</div>
+      <div class="empty-text">Start an experiment to see results here</div>
+    </div>
+
+    <div class="experiment-view" id="expView" style="display:none">
+
+      <div class="exp-header">
+        <div class="exp-goal-label">Research Goal</div>
+        <div class="exp-goal-text" id="viewGoal">—</div>
+        <div class="exp-badges" id="viewBadges"></div>
+      </div>
+
+      <!-- Pipeline -->
+      <div class="pipeline" id="pipeline">
+        <!-- injected by JS -->
+      </div>
+
+      <!-- Current hypothesis -->
+      <div class="section" id="hypothesisSection" style="display:none">
+        <div class="section-title">Current Hypothesis</div>
+        <div class="card">
+          <div class="card-label">Hypothesis</div>
+          <div class="card-value" id="hypothesisText">—</div>
+        </div>
+        <div class="card" style="margin-top:10px">
+          <div class="card-label">Success Criteria</div>
+          <div class="card-value" id="successCriteria">—</div>
+        </div>
+      </div>
+
+      <!-- Iteration log -->
+      <div class="section" id="iterSection" style="display:none">
+        <div class="section-title">Iteration History</div>
+        <div id="iterLog"></div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Toast container -->
+<div id="toastContainer"></div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+// Point this at your Cloudflare Worker URL in production
+const API_BASE = window.location.hostname === 'localhost'
+  ? 'http://localhost:8787'
+  : '';   // same origin when deployed on Cloudflare Pages
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let experiments = {};   // id → experiment object
+let activeId    = null;
+let pollTimers  = {};   // id → setInterval handle
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function timeAgo(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  return `${Math.floor(s/3600)}h ago`;
+}
+
+function fmtMetric(v) {
+  if (v === null || v === undefined) return '—';
+  return typeof v === 'number' ? (v < 1 ? (v * 100).toFixed(1) + '%' : v.toFixed(4)) : v;
+}
+
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  const icon = type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️';
+  el.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ── Pipeline rendering ─────────────────────────────────────────────────────────
+const NODES = [
+  { id: 'hypothesize',        label: 'Hypothesis', icon: '💡' },
+  { id: 'dataset',            label: 'Dataset',    icon: '📦' },
+  { id: 'architecture_search',label: 'Architecture',icon: '🏗️' },
+  { id: 'train',              label: 'Train',      icon: '🔧' },
+  { id: 'evaluate',           label: 'Evaluate',   icon: '📊' },
+  { id: 'iterate',            label: 'Iterate',    icon: '🔁' },
+];
+
+const NODE_ORDER = NODES.map(n => n.id);
+
+function renderPipeline(currentNode, status) {
+  const container = document.getElementById('pipeline');
+  const currentIdx = NODE_ORDER.indexOf(currentNode);
+
+  container.innerHTML = NODES.map((n, i) => {
+    const isDone   = status === 'converged' || status === 'max_iter' || i < currentIdx;
+    const isActive = n.id === currentNode && (status === 'running' || status === 'queued');
+    const circleClass = isActive ? 'active' : isDone ? 'done' : '';
+    const connClass   = i < currentIdx ? 'done' : '';
+    const connector   = i < NODES.length - 1
+      ? `<div class="pipe-connector ${connClass}"></div>`
+      : '';
+    return `
+      <div class="pipe-node">
+        <div class="pipe-circle ${circleClass}">${n.icon}</div>
+        <div class="pipe-label">${n.label}</div>
+      </div>${connector}`;
+  }).join('');
+}
+
+// ── Experiment list ───────────────────────────────────────────────────────────
+function renderExpList() {
+  const list = document.getElementById('expList');
+  const exps = Object.values(experiments).sort((a,b) => b.created_at - a.created_at);
+
+  if (exps.length === 0) {
+    list.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:12px;text-align:center">No experiments yet</div>';
+    return;
+  }
+
+  list.innerHTML = exps.map(exp => `
+    <div class="exp-item ${exp.id === activeId ? 'active' : ''}" onclick="selectExperiment('${exp.id}')">
+      <div class="exp-item-goal">${exp.goal}</div>
+      <div class="exp-item-meta">
+        <span class="exp-status status-${exp.status}">${exp.status}</span>
+        <span class="exp-item-time">${timeAgo(exp.created_at)}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Experiment detail ─────────────────────────────────────────────────────────
+function renderExperimentView(exp) {
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('expView').style.display = 'block';
+
+  document.getElementById('viewGoal').textContent = exp.goal;
+
+  // Badges
+  const badges = document.getElementById('viewBadges');
+  badges.innerHTML = `
+    <span class="exp-status status-${exp.status}">${exp.status}</span>
+    <span class="badge">ID: ${exp.id}</span>
+    <span class="badge">${exp.iteration || 0} / ${exp.max_iterations} iter</span>
+    ${exp.status === 'running' ? '<span class="spinner"></span>' : ''}
+  `;
+
+  // Pipeline
+  renderPipeline(exp.current_node || 'hypothesize', exp.status);
+
+  // Hypothesis (from latest iteration log)
+  const latest = (exp.iteration_log || []).slice(-1)[0];
+  if (latest) {
+    document.getElementById('hypothesisSection').style.display = 'block';
+    document.getElementById('hypothesisText').textContent = latest.hypothesis || '—';
+    const m = latest.metrics || {};
+    const crit = m.val_accuracy != null
+      ? `val_accuracy = ${(m.val_accuracy * 100).toFixed(1)}%`
+      : 'Pending…';
+    document.getElementById('successCriteria').textContent = crit;
+  }
+
+  // Iteration log
+  if ((exp.iteration_log || []).length > 0) {
+    document.getElementById('iterSection').style.display = 'block';
+    document.getElementById('iterLog').innerHTML = exp.iteration_log.map((entry, i) => `
+      <div class="iter-card">
+        <div class="iter-card-header" onclick="toggleIter(this)">
+          <div class="iter-num">${entry.iteration + 1}</div>
+          <div>
+            <div class="iter-summary">${entry.architecture || 'Unknown architecture'}</div>
+            <div class="iter-verdict">${entry.verdict || ''}</div>
+          </div>
+          <span class="iter-chevron">▼</span>
+        </div>
+        <div class="iter-body">
+          <div class="card-label" style="margin-bottom:10px">Hypothesis</div>
+          <div class="card-value" style="margin-bottom:14px;font-size:12px">${entry.hypothesis || '—'}</div>
+
+          <div class="card-label" style="margin-bottom:10px">Metrics</div>
+          <div class="metrics-grid">
+            ${Object.entries(entry.metrics || {}).map(([k,v]) => `
+              <div class="metric-box">
+                <div class="metric-val">${fmtMetric(v)}</div>
+                <div class="metric-lbl">${k.replace(/_/g,' ')}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+}
+
+function toggleIter(header) {
+  const body = header.nextElementSibling;
+  const chevron = header.querySelector('.iter-chevron');
+  body.classList.toggle('open');
+  chevron.classList.toggle('open');
+}
+
+// ── API calls ─────────────────────────────────────────────────────────────────
+async function startExperiment() {
+  const goal = document.getElementById('goalInput').value.trim();
+  if (!goal) { toast('Please enter a research goal', 'error'); return; }
+
+  const maxIter = parseInt(document.getElementById('maxIter').value);
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Queuing…';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/experiment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goal, max_iterations: maxIter }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to start');
+
+    const exp = {
+      id: data.experiment_id,
+      goal,
+      status: 'queued',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      iteration: 0,
+      max_iterations: maxIter,
+      iteration_log: [],
+      current_node: 'hypothesize',
+    };
+    experiments[exp.id] = exp;
+    selectExperiment(exp.id);
+    renderExpList();
+    startPolling(exp.id);
+    document.getElementById('goalInput').value = '';
+    toast('Experiment queued!', 'success');
+  } catch (err) {
+    toast(`Error: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Run';
+  }
+}
+
+async function fetchExperiment(id) {
+  const res = await fetch(`${API_BASE}/api/experiment/${id}`);
+  if (!res.ok) throw new Error('Failed to fetch');
+  return res.json();
+}
+
+async function loadExperiments() {
+  try {
+    const res = await fetch(`${API_BASE}/api/experiments`);
+    if (!res.ok) return;
+    const list = await res.json();
+    list.forEach(exp => {
+      experiments[exp.id] = exp;
+      if (exp.status === 'running' || exp.status === 'queued') startPolling(exp.id);
+    });
+    renderExpList();
+  } catch(e) { /* offline / dev */ }
+}
+
+function startPolling(id) {
+  if (pollTimers[id]) return;
+  pollTimers[id] = setInterval(async () => {
+    try {
+      const exp = await fetchExperiment(id);
+      experiments[id] = exp;
+      renderExpList();
+      if (activeId === id) renderExperimentView(exp);
+      if (exp.status !== 'running' && exp.status !== 'queued') {
+        clearInterval(pollTimers[id]);
+        delete pollTimers[id];
+        toast(`Experiment ${id} ${exp.status}`, exp.status === 'converged' ? 'success' : 'info');
+      }
+    } catch(e) {
+      // ignore transient errors
+    }
+  }, 3000);
+}
+
+function selectExperiment(id) {
+  activeId = id;
+  renderExpList();
+  renderExperimentView(experiments[id]);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadExperiments();
+</script>
+</body>
+</html>
